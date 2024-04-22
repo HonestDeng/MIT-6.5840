@@ -1,48 +1,142 @@
 package mr
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"sort"
+	"strconv"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
 
+type ByKey []KeyValue
 
-//
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 // Map functions return a slice of KeyValue.
-//
 type KeyValue struct {
 	Key   string
 	Value string
 }
 
-//
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
-//
 // main/mrworker.go calls this function.
-//
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	for {
+		task := requestTask()
+		switch task.taskType {
+		case "END":
+			os.Exit(0)
+		case "MAP":
+			file, err := os.Open(task.files[0])
+			if err != nil {
+				// TODO: 处理err
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				// TODO: 处理err
+			}
+			file.Close()
+			intermediate := mapf(task.files[0], string(content))
+			// 创建nReduce个文件
+			ofiles := make([]*os.File, task.nReduce)
+			encs := make([]*json.Encoder, task.nReduce)
+			for i := 0; i < task.nReduce; i++ {
+				filename := "mr-" + strconv.Itoa(task.taskNumber) + "-" + strconv.Itoa(i)
+				f, err := os.Create(filename)
+				if err != nil {
+					// TODO: 处理err
+				}
+				ofiles[i] = f
+				encs[i] = json.NewEncoder(f)
+			}
+			for _, kv := range intermediate {
+				i := ihash(kv.Key)
+				err := encs[i].Encode(kv.Value)
+				if err != nil {
+					// TODO: 处理err
+				}
+			}
+			// 关闭文件
+			for _, file := range ofiles {
+				err := file.Close()
+				if err != nil {
+					// TODO: 处理err
+				}
+			}
+		case "REDUCE":
+			intermediate := []KeyValue{}
+			for _, file_name := range task.files {
+				file, err := os.Open(file_name)
+				if err != nil {
+					// TODO: 处理异常
+				}
+				dec := json.NewDecoder(file)
+				for {
+					var kv KeyValue
+					if err := dec.Decode(&kv); err != nil {
+						break
+					}
+					intermediate = append(intermediate, kv)
+				}
+			}
+			sort.Sort(ByKey(intermediate))
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+			oname := "mr-out-" + strconv.Itoa(task.taskNumber)
+			ofile, _ := os.Create(oname)
 
+			// shuffle然后调用reduce
+			i := 0
+			for i < len(intermediate) {
+				j := i + 1
+				for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+					j++
+				}
+				values := []string{}
+				for k := i; k < j; k++ {
+					values = append(values, intermediate[k].Value)
+				}
+				output := reducef(intermediate[i].Key, values) // 调用reduce
+
+				// this is the correct format for each line of Reduce output.
+				fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+				i = j
+			}
+			ofile.Close()
+		}
+	}
 }
 
-//
+func requestTask() TaskReply {
+	args := TaskRequest{}
+	reply := TaskReply{}
+	ok := call("Coordinator.assignTask", &args, &reply)
+	if !ok {
+		// TODO: 处理异常
+	}
+	return reply
+}
+
 // example function to show how to make an RPC call to the coordinator.
 //
 // the RPC argument and reply types are defined in rpc.go.
-//
 func CallExample() {
 
 	// declare an argument structure.
@@ -67,11 +161,9 @@ func CallExample() {
 	}
 }
 
-//
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-//
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
