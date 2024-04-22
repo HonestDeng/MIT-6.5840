@@ -8,9 +8,10 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	inputFile []string        // 待处理的文件
-	nReduce   int             // reduce的任务数
-	mapTask   map[string]bool // 标记任务是否完成
+	inputFile  []string        // 待处理的文件
+	nReduce    int             // reduce的任务数
+	mapTask    map[string]bool // 标记map任务是否完成
+	reduceTask map[string]bool // 标记reduce任务是否完成
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -40,11 +41,18 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := false
+	for _, is_done := range c.mapTask {
+		if !is_done {
+			return false
+		}
+	}
 
-	// Your code here.
-
-	return ret
+	for _, is_done := range c.reduceTask {
+		if !is_done {
+			return false
+		}
+	}
+	return true
 }
 
 // create a Coordinator.
