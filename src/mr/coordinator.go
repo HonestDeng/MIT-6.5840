@@ -46,7 +46,7 @@ func (c *Coordinator) Done() bool {
 			return false
 		}
 	}
-
+	// TODO: fix bug, 有可能还没来得及将reduce任务放入到reduceTask中
 	for _, is_done := range c.reduceTask {
 		if !is_done {
 			return false
