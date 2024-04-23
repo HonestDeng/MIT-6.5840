@@ -35,75 +35,85 @@ func ihash(key string) int {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
-
-	// Your worker implementation here.
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	for {
 		task := requestTask()
-		switch task.taskType {
+		switch task.TaskType {
 		case "END":
 			os.Exit(0)
 		case "WAIT":
 			time.Sleep(time.Second)
 		case "MAP":
-			file, err := os.Open(task.files[0])
+			file, err := os.Open(task.Files[0])
 			if err != nil {
-				// TODO: 处理err
+				fmt.Printf("Fail to open file: %v", task.Files[0])
+				fmt.Println(err)
+				os.Exit(0)
 			}
 			content, err := ioutil.ReadAll(file)
 			if err != nil {
-				// TODO: 处理err
+				fmt.Printf("Fail to read file: %v", task.Files[0])
+				fmt.Println(err)
+				os.Exit(0)
 			}
 			file.Close()
 
-			intermediate := mapf(task.files[0], string(content))
+			intermediate := mapf(task.Files[0], string(content))
 
 			// 创建nReduce个文件
-			ofilenames := make([]string, task.nReduce)
-			ofiles := make([]*os.File, task.nReduce)
-			encs := make([]*json.Encoder, task.nReduce)
-			for i := 0; i < task.nReduce; i++ {
-				filename := "mr-" + strconv.Itoa(task.taskID) + "-" + strconv.Itoa(i)
+			ofilenames := make([]string, task.NReduce)
+			ofiles := make([]*os.File, task.NReduce)
+			encs := make([]*json.Encoder, task.NReduce)
+			for i := 0; i < task.NReduce; i++ {
+				filename := "mr-" + strconv.Itoa(task.TaskID) + "-" + strconv.Itoa(i) + ".txt"
 				ofilenames[i] = filename
 				f, err := os.Create(filename)
 				if err != nil {
-					// TODO: 处理err
+					fmt.Printf("Fail to create file: %v", filename)
+					fmt.Println(err)
+					os.Exit(0)
 				}
 				ofiles[i] = f
 				encs[i] = json.NewEncoder(f)
 			}
 			for _, kv := range intermediate {
-				i := ihash(kv.Key)
-				err := encs[i].Encode(kv.Value)
+				i := ihash(kv.Key) % task.NReduce
+				err := encs[i].Encode(&kv)
 				if err != nil {
-					// TODO: 处理err
+					fmt.Printf("Fail to write into file: %v, %v", ofilenames[i], kv)
+					fmt.Println(err)
+					os.Exit(0)
 				}
 			}
 			// 关闭文件
-			for _, file := range ofiles {
+			for i, file := range ofiles {
 				err := file.Close()
 				if err != nil {
-					// TODO: 处理err
+					fmt.Printf("Fail to close file: %v, %v", ofilenames[i])
+					fmt.Println(err)
+					os.Exit(0)
 				}
 			}
 
 			// 将结果文件提交给coordinator
 			args, reply := HandInResultArgs{}, HandInResultReply{}
-			args.taskID, args.taskType, args.resultFiles = task.taskID, task.taskType, ofilenames
+			args.TaskID, args.TaskType, args.ResultFiles = task.TaskID, task.TaskType, ofilenames
 			handInResult(&args, &reply)
 
 		case "REDUCE":
 			intermediate := []KeyValue{}
-			for _, file_name := range task.files {
+			for _, file_name := range task.Files {
 				file, err := os.Open(file_name)
 				if err != nil {
-					// TODO: 处理异常
+					fmt.Printf("Fail to open file: %v\n", file_name)
+					fmt.Println(err)
+					os.Exit(0)
 				}
 				dec := json.NewDecoder(file)
 				for {
 					var kv KeyValue
 					if err := dec.Decode(&kv); err != nil {
+						// 读取完毕
 						break
 					}
 					intermediate = append(intermediate, kv)
@@ -111,7 +121,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 			sort.Sort(ByKey(intermediate))
 
-			oname := "mr-out-" + strconv.Itoa(task.taskID)
+			oname := "mr-out-" + strconv.Itoa(task.TaskID)
 			ofile, _ := os.Create(oname)
 
 			// shuffle然后调用reduce
@@ -138,7 +148,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			ofilename := make([]string, 1)
 			ofilename[0] = oname
 			args, reply := HandInResultArgs{}, HandInResultReply{}
-			args.taskID, args.taskType, args.resultFiles = task.taskID, task.taskType, ofilename
+			args.TaskID, args.TaskType, args.ResultFiles = task.TaskID, task.TaskType, ofilename
 			handInResult(&args, &reply)
 		}
 	}
@@ -147,17 +157,21 @@ func Worker(mapf func(string, string) []KeyValue,
 func requestTask() TaskReply {
 	args := TaskRequest{}
 	reply := TaskReply{}
-	ok := call("Coordinator.assignTask", &args, &reply)
+	ok := call("Coordinator.AssignTask", &args, &reply)
 	if !ok {
 		// TODO: 处理异常
+		fmt.Printf("requestTask: Cannot connect Coordinator. Maybe job is Done.", args)
+		os.Exit(0)
 	}
 	return reply
 }
 
 func handInResult(args *HandInResultArgs, reply *HandInResultReply) {
-	ok := call("Coordinator.handInResult", args, reply)
+	ok := call("Coordinator.HandInResult", args, reply)
 	if !ok {
 		// TODO: 处理异常
+		fmt.Printf("handInResult: Cannot connect Coordinator. Maybe job is Done.", args)
+		os.Exit(0)
 	}
 }
 

@@ -28,16 +28,16 @@ type TaskRequest struct {
 }
 
 type TaskReply struct {
-	taskType string
-	files    []string
-	taskID   int
-	nReduce  int
+	TaskType string
+	Files    []string
+	TaskID   int
+	NReduce  int
 }
 
 type HandInResultArgs struct {
-	taskType    string
-	resultFiles []string
-	taskID      int
+	TaskType    string
+	ResultFiles []string
+	TaskID      int
 }
 
 type HandInResultReply struct {
