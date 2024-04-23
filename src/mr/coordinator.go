@@ -8,13 +8,19 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	inputFile  []string        // 待处理的文件
-	nReduce    int             // reduce的任务数
-	mapTask    map[string]bool // 标记map任务是否完成
-	reduceTask map[string]bool // 标记reduce任务是否完成
+	inputFile           []string       // 待处理的文件
+	intermediateFiles   [][]string     // 中间文件。第一维是taskID，第二维是nReduce
+	nReduce             int            // reduce的任务数
+	waitingMapTasks     map[string]int // 未完成的Map任务。key是待处理的文件名，value是taskID
+	finishedMapTasks    map[string]int // 已经完成的Map任务
+	waitingReduceTasks  map[int]int    // 未完成的Reduce任务。key是taskID，value没有用
+	finishedReduceTasks map[int]int    // 已经完成的Reduce任务
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func (c *Coordinator) assignTask(args *TaskReply, reply *TaskReply) {
+
+}
 
 // an example RPC handler.
 //
@@ -63,8 +69,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 
 	// Your code here.
 	c.inputFile, c.nReduce = files, nReduce
-	for _, file := range files {
-		c.mapTask[file] = false
+	for i, file := range files {
+		c.waitingMapTasks[file] = i
+		c.intermediateFiles[i] = make([]string, c.nReduce)
 	}
 
 	c.server()
