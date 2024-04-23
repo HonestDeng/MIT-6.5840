@@ -13,13 +13,50 @@ type Coordinator struct {
 	nReduce             int            // reduce的任务数
 	waitingMapTasks     map[string]int // 未完成的Map任务。key是待处理的文件名，value是taskID
 	finishedMapTasks    map[string]int // 已经完成的Map任务
-	waitingReduceTasks  map[int]int    // 未完成的Reduce任务。key是taskID，value没有用
+	waitingReduceTasks  map[int]int    // 未完成的Reduce任务。key是taskID，value没有使用
 	finishedReduceTasks map[int]int    // 已经完成的Reduce任务
 }
 
 // Your code here -- RPC handlers for the worker to call.
-func (c *Coordinator) assignTask(args *TaskReply, reply *TaskReply) {
+func (c *Coordinator) assignTask(args *TaskRequest, reply *TaskReply) {
+	// TODO: 使用锁保护共享资源
+	if len(c.waitingMapTasks) > 0 {
+		filenames := make([]string, 1)
+		var taskID int
+		for k := range c.waitingMapTasks {
+			filenames[0] = k
+			taskID = c.waitingMapTasks[k]
+			break
+		}
+		c.finishedMapTasks[filenames[0]] = taskID
+		delete(c.waitingMapTasks, filenames[0])
 
+		reply.files = filenames
+		reply.taskType = "MAP"
+		reply.nReduce = c.nReduce
+		reply.taskID = taskID
+	} else if len(c.waitingReduceTasks) > 0 {
+		filenames := make([]string, c.nReduce)
+		var taskID int
+		for k := range c.waitingReduceTasks {
+			filenames = c.intermediateFiles[k]
+			taskID = k
+			break
+		}
+		c.finishedReduceTasks[taskID] = 1
+		delete(c.waitingReduceTasks, taskID)
+
+		reply.files = filenames
+		reply.taskType = "MAP"
+		reply.nReduce = c.nReduce
+		reply.taskID = taskID
+	} else if len(c.finishedReduceTasks) == c.nReduce {
+		// 所有工作都已经完成了
+		reply.taskType = "END"
+	} else {
+		// map任务才刚开始，还没有人map worker提交intermediate文件
+		reply.taskType = "WAIT"
+	}
 }
 
 // an example RPC handler.

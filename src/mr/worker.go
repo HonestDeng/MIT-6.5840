@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"time"
 )
 import "log"
 import "net/rpc"
@@ -43,6 +44,8 @@ func Worker(mapf func(string, string) []KeyValue,
 		switch task.taskType {
 		case "END":
 			os.Exit(0)
+		case "WAIT":
+			time.Sleep(time.Second)
 		case "MAP":
 			file, err := os.Open(task.files[0])
 			if err != nil {
