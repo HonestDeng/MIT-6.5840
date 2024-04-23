@@ -155,7 +155,7 @@ func requestTask() TaskReply {
 }
 
 func handInResult(args *HandInResultArgs, reply *HandInResultReply) {
-	ok := call("Coordinator.HandInResult", args, reply)
+	ok := call("Coordinator.handInResult", args, reply)
 	if !ok {
 		// TODO: 处理异常
 	}
