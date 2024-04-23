@@ -28,10 +28,19 @@ type TaskRequest struct {
 }
 
 type TaskReply struct {
-	taskType   string
-	files      []string
-	taskNumber int
-	nReduce    int
+	taskType string
+	files    []string
+	taskID   int
+	nReduce  int
+}
+
+type HandInResultArgs struct {
+	taskType    string
+	resultFiles []string
+	taskID      int
+}
+
+type HandInResultReply struct {
 }
 
 // Cook up a unique-ish UNIX-domain socket name

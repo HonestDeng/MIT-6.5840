@@ -53,12 +53,16 @@ func Worker(mapf func(string, string) []KeyValue,
 				// TODO: 处理err
 			}
 			file.Close()
+
 			intermediate := mapf(task.files[0], string(content))
+
 			// 创建nReduce个文件
+			ofilenames := make([]string, task.nReduce)
 			ofiles := make([]*os.File, task.nReduce)
 			encs := make([]*json.Encoder, task.nReduce)
 			for i := 0; i < task.nReduce; i++ {
-				filename := "mr-" + strconv.Itoa(task.taskNumber) + "-" + strconv.Itoa(i)
+				filename := "mr-" + strconv.Itoa(task.taskID) + "-" + strconv.Itoa(i)
+				ofilenames[i] = filename
 				f, err := os.Create(filename)
 				if err != nil {
 					// TODO: 处理err
@@ -80,6 +84,12 @@ func Worker(mapf func(string, string) []KeyValue,
 					// TODO: 处理err
 				}
 			}
+
+			// 将结果文件提交给coordinator
+			args, reply := HandInResultArgs{}, HandInResultReply{}
+			args.taskID, args.taskType, args.resultFiles = task.taskID, task.taskType, ofilenames
+			handInResult(&args, &reply)
+
 		case "REDUCE":
 			intermediate := []KeyValue{}
 			for _, file_name := range task.files {
@@ -98,7 +108,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 			sort.Sort(ByKey(intermediate))
 
-			oname := "mr-out-" + strconv.Itoa(task.taskNumber)
+			oname := "mr-out-" + strconv.Itoa(task.taskID)
 			ofile, _ := os.Create(oname)
 
 			// shuffle然后调用reduce
@@ -120,6 +130,13 @@ func Worker(mapf func(string, string) []KeyValue,
 				i = j
 			}
 			ofile.Close()
+
+			// 将结果文件提交给coordinator
+			ofilename := make([]string, 1)
+			ofilename[0] = oname
+			args, reply := HandInResultArgs{}, HandInResultReply{}
+			args.taskID, args.taskType, args.resultFiles = task.taskID, task.taskType, ofilename
+			handInResult(&args, &reply)
 		}
 	}
 }
@@ -132,6 +149,13 @@ func requestTask() TaskReply {
 		// TODO: 处理异常
 	}
 	return reply
+}
+
+func handInResult(args *HandInResultArgs, reply *HandInResultReply) {
+	ok := call("Coordinator.HandInResult", args, reply)
+	if !ok {
+		// TODO: 处理异常
+	}
 }
 
 // example function to show how to make an RPC call to the coordinator.
