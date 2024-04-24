@@ -10,7 +10,11 @@ package main
 // Please do not change this file.
 //
 
-import "6.5840/mr"
+import (
+	"6.5840/mr"
+	"strconv"
+	"time"
+)
 import "plugin"
 import "os"
 import "fmt"
@@ -23,6 +27,10 @@ func main() {
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
+	f, err := os.OpenFile(strconv.Itoa(int(time.Now().Unix()))+"log.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, os.ModePerm)
+	if err != nil {
+	}
+	log.SetOutput(f)
 
 	mr.Worker(mapf, reducef)
 }

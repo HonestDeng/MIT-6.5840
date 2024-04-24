@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"sort"
 	"strconv"
 	"time"
 )
-import "log"
 import "net/rpc"
 import "hash/fnv"
 
@@ -40,20 +40,24 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		task := requestTask()
 		switch task.TaskType {
 		case "END":
+			log.Println("Get END task.")
 			os.Exit(0)
 		case "WAIT":
+			log.Println("Get WAIT task. Sleep for a second.")
 			time.Sleep(time.Second)
 		case "MAP":
+			log.Println("Get MAP task with task id ", task.TaskID, ".")
+			log.Println("Read file", task.Files[0])
 			file, err := os.Open(task.Files[0])
 			if err != nil {
-				fmt.Printf("Fail to open file: %v", task.Files[0])
-				fmt.Println(err)
+				log.Printf("Fail to open file: %v", task.Files[0])
+				log.Println(err)
 				os.Exit(0)
 			}
 			content, err := ioutil.ReadAll(file)
 			if err != nil {
-				fmt.Printf("Fail to read file: %v", task.Files[0])
-				fmt.Println(err)
+				log.Printf("Fail to read file: %v", task.Files[0])
+				log.Println(err)
 				os.Exit(0)
 			}
 			file.Close()
@@ -66,11 +70,12 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			encs := make([]*json.Encoder, task.NReduce)
 			for i := 0; i < task.NReduce; i++ {
 				filename := "mr-" + strconv.Itoa(task.TaskID) + "-" + strconv.Itoa(i) + ".txt"
+				log.Println("Create file", filename)
 				ofilenames[i] = filename
 				f, err := os.Create(filename)
 				if err != nil {
-					fmt.Printf("Fail to create file: %v", filename)
-					fmt.Println(err)
+					log.Printf("Fail to create file: %v", filename)
+					log.Println(err)
 					os.Exit(0)
 				}
 				ofiles[i] = f
@@ -80,8 +85,8 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				i := ihash(kv.Key) % task.NReduce
 				err := encs[i].Encode(&kv)
 				if err != nil {
-					fmt.Printf("Fail to write into file: %v, %v", ofilenames[i], kv)
-					fmt.Println(err)
+					log.Printf("Fail to write into file: %v, %v", ofilenames[i], kv)
+					log.Println(err)
 					os.Exit(0)
 				}
 			}
@@ -89,8 +94,8 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			for i, file := range ofiles {
 				err := file.Close()
 				if err != nil {
-					fmt.Printf("Fail to close file: %v, %v", ofilenames[i])
-					fmt.Println(err)
+					log.Printf("Fail to close file: %v, %v", ofilenames[i])
+					log.Println(err)
 					os.Exit(0)
 				}
 			}
@@ -101,12 +106,13 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			handInResult(&args, &reply)
 
 		case "REDUCE":
+			log.Println("Get REDUCE task with task id ", task.TaskID, ".")
 			intermediate := []KeyValue{}
 			for _, file_name := range task.Files {
 				file, err := os.Open(file_name)
 				if err != nil {
-					fmt.Printf("Fail to open file: %v\n", file_name)
-					fmt.Println(err)
+					log.Printf("Fail to open file: %v\n", file_name)
+					log.Println(err)
 					os.Exit(0)
 				}
 				dec := json.NewDecoder(file)
@@ -155,22 +161,24 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 }
 
 func requestTask() TaskReply {
+	log.Println("Request task from Coordinator.")
 	args := TaskRequest{}
 	reply := TaskReply{}
 	ok := call("Coordinator.AssignTask", &args, &reply)
 	if !ok {
 		// TODO: 处理异常
-		fmt.Printf("requestTask: Cannot connect Coordinator. Maybe job is Done.", args)
+		log.Printf("requestTask: Cannot connect Coordinator. Maybe job is Done. It's time to exit.", args)
 		os.Exit(0)
 	}
 	return reply
 }
 
 func handInResult(args *HandInResultArgs, reply *HandInResultReply) {
+	log.Println("Hand in completed job to Coordinator.")
 	ok := call("Coordinator.HandInResult", args, reply)
 	if !ok {
 		// TODO: 处理异常
-		fmt.Printf("handInResult: Cannot connect Coordinator. Maybe job is Done.", args)
+		log.Printf("handInResult: Cannot connect Coordinator. Maybe job is Done. It't time to exit.", args)
 		os.Exit(0)
 	}
 }
@@ -211,6 +219,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
+		return false
 	}
 	defer c.Close()
 

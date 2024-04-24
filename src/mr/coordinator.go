@@ -61,25 +61,52 @@ type Coordinator struct {
 func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
 	// 使用锁保护共享资源
 	c.mutex.Lock()
+	log.Println("* Current Map task statues:")
+	log.Println(c.waitingMapTasks)
+	log.Println(c.solvingMapTasks)
+	log.Println(c.finishedMapTasks)
+	log.Println(c.mapHeap)
+	log.Println("* Current Reduce task status: ")
+	log.Println(c.waitingReduceTasks)
+	log.Println(c.solvingReduceTasks)
+	log.Println(c.finishedReduceTasks)
+	log.Println(c.reduceHeap)
+
 	// 先将超时任务从solving状态转移到waiting状态
-	for c.mapHeap.Len() > 0 && time.Now().UnixNano()-c.mapHeap[0][0] >= c.failureTime {
+	for c.mapHeap.Len() > 0 && time.Now().UnixMicro()-c.mapHeap[0][0] >= c.failureTime {
 		taskID := c.mapHeap[0][1]
 		key := c.inputFile[taskID]
 		c.waitingMapTasks[key] = int(taskID)
 		delete(c.solvingMapTasks, key)
 
+		log.Println("Due to time out, move map task ", taskID, "from solving to waiting. Time is", time.Now().UnixMicro())
+
 		heap.Pop(&c.mapHeap)
 	}
-	for c.reduceHeap.Len() > 0 && time.Now().UnixNano()-c.reduceHeap[0][0] >= c.failureTime {
+	for c.reduceHeap.Len() > 0 && time.Now().UnixMicro()-c.reduceHeap[0][0] >= c.failureTime {
 		taskID := c.reduceHeap[0][1]
 		c.waitingReduceTasks[int(taskID)] = 1
 		delete(c.solvingReduceTasks, int(taskID))
 
+		log.Println("Due to time out, move reduce task ", taskID, "from solving to waiting")
+
 		heap.Pop(&c.reduceHeap)
 	}
 
+	log.Println("* Current Map task statues:")
+	log.Println(c.waitingMapTasks)
+	log.Println(c.solvingMapTasks)
+	log.Println(c.finishedMapTasks)
+	log.Println(c.mapHeap)
+	log.Println("* Current Reduce task status: ")
+	log.Println(c.waitingReduceTasks)
+	log.Println(c.solvingReduceTasks)
+	log.Println(c.finishedReduceTasks)
+	log.Println(c.reduceHeap)
+
 	// 分派任务：如果还有未完成的map，则不会分派reduce任务
 	if len(c.waitingMapTasks) > 0 { // 如果仍然有map任务没有分配
+		log.Println("* There are ", len(c.waitingMapTasks), " map task waiting to be assigned")
 		filenames := make([]string, 1)
 		var taskID int
 		for k := range c.waitingMapTasks {
@@ -97,10 +124,13 @@ func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
 		reply.TaskID = taskID
 
 		// 记录任务执行的开始时间
-		pii := pair{time.Now().UnixNano(), int64(taskID)}
+		pii := pair{time.Now().UnixMicro(), int64(taskID)}
 		heap.Push(&c.mapHeap, pii)
+
+		log.Println("Assign map task with taskID ", taskID)
 	} else if len(c.finishedMapTasks) == len(c.inputFile) && len(c.waitingReduceTasks) > 0 { // 尝试分配reduce任务
 		// 所有map任务已经完成，并且仍然有reduce任务没有分配，那么分配reduce任务
+		log.Println("* There are ", len(c.waitingReduceTasks), " reduce task waiting to be assigned")
 		filenames := make([]string, len(c.intermediateFiles))
 		var taskID int
 		for k := range c.waitingReduceTasks {
@@ -112,7 +142,7 @@ func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
 		}
 
 		c.solvingReduceTasks[taskID] = 1
-		delete(c.solvingReduceTasks, taskID)
+		delete(c.waitingReduceTasks, taskID)
 
 		reply.Files = filenames
 		reply.TaskType = "REDUCE"
@@ -120,13 +150,17 @@ func (c *Coordinator) AssignTask(args *TaskRequest, reply *TaskReply) error {
 		reply.TaskID = taskID
 
 		// 记录任务执行的开始时间
-		pii := pair{time.Now().UnixNano(), int64(taskID)}
+		pii := pair{time.Now().UnixMicro(), int64(taskID)}
 		heap.Push(&c.reduceHeap, pii)
+
+		log.Println("Assign reduce task with taskID ", taskID)
 	} else if len(c.finishedReduceTasks) == c.nReduce {
 		// 所有工作都已经完成了
+		log.Println("All task Done.")
 		reply.TaskType = "END"
 	} else {
 		// 暂时没有任务可以分派，通知worker进入等待状态
+		log.Println("There is no waiting task to be assigned. Just wait a while.")
 		reply.TaskType = "WAIT"
 	}
 	c.mutex.Unlock()
@@ -139,6 +173,7 @@ func (c *Coordinator) HandInResult(args *HandInResultArgs, reply *HandInResultRe
 	c.mutex.Lock()
 	// TODO：万一是被认为是僵尸的worker提交result应该怎么处理？
 	if args.TaskType == "MAP" {
+		log.Println("Receive a completed MAP task with taskID ", args.TaskID)
 		key := c.inputFile[args.TaskID]
 		// 保存中间文件并创建reduce任务
 		c.intermediateFiles[args.TaskID] = args.ResultFiles
@@ -153,6 +188,7 @@ func (c *Coordinator) HandInResult(args *HandInResultArgs, reply *HandInResultRe
 			}
 		}
 	} else if args.TaskType == "REDUCE" {
+		log.Println("Receive a completed REDUCE task with taskID ", args.TaskID)
 		key := args.TaskID
 
 		// 将task从solving状态转移到finished状态
@@ -195,6 +231,8 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	return len(c.finishedReduceTasks) == c.nReduce
 }
 
@@ -205,7 +243,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
-	c.inputFile, c.nReduce, c.failureTime = files, nReduce, 10*1000 // 10秒 = 10 * 1000 毫秒
+	c.inputFile, c.nReduce, c.failureTime = files, nReduce, 10*1000000 // 10秒 = 10 * 10^6 微秒
 	c.waitingMapTasks = make(map[string]int)
 	c.solvingMapTasks = make(map[string]int)
 	c.finishedMapTasks = make(map[string]int)

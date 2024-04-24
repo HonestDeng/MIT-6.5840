@@ -9,7 +9,10 @@ package main
 // Please do not change this file.
 //
 
-import "6.5840/mr"
+import (
+	"6.5840/mr"
+	"log"
+)
 import "time"
 import "os"
 import "fmt"
@@ -19,6 +22,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: mrcoordinator inputfiles...\n")
 		os.Exit(1)
 	}
+
+	f, err := os.OpenFile("Coordinator.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, os.ModePerm)
+	if err != nil {
+	}
+	log.SetOutput(f)
 
 	m := mr.MakeCoordinator(os.Args[1:], 10)
 	for m.Done() == false {
